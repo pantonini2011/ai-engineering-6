@@ -13,19 +13,45 @@ alertas, normativa de despliegue, runbook de incidentes). Responder una consulta
 conexiones en PgBouncer, ¿ya salta la alerta y cuánto margen queda?" exige dos especialidades:
 **encontrar** los umbrales en la documentación y **calcular** contra ellos.
 
-## Evidencia de ejecución
+---
 
-| Qué | Resultado | Evidencia |
-|---|---|---|
-| Demo con API real | 4 turnos con Anthropic `claude-sonnet-5-5` (14/10/2026). En los 4, el supervisor delegó primero en el investigador y después en el analista (salvo el turno 4, sin datos). Ningún especialista falló | [`traces/traza_delegacion.log`](traces/traza_delegacion.log), [`traces/traza_delegacion.json`](traces/traza_delegacion.json) |
-| Notebook de demostración | Ejecutado de punta a punta, sin errores, con las salidas guardadas: diagrama, delegación paso a paso, parcelas del estado, respuesta y seguimiento en el mismo thread | [`demo.ipynb`](demo.ipynb) |
-| Tests (`pytest`) | **39 passed**, sin API key (Python 3.12.10, Windows 10) | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
-| Tipado (`mypy --strict`) | `Success: no issues found in 12 source files` | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
-| Diagrama del grafo | Generado con `graph.get_graph().draw_mermaid_png()` | [`docs/grafo.png`](docs/grafo.png), [`docs/grafo.mmd`](docs/grafo.mmd) |
+## 1. Topología del sistema y justificación
 
-Para reproducirlo: `pytest` (no usa API key) y `python main.py` (demo; usa la key del `.env`).
+### Topología
 
-## Diagrama del grafo
+Se implementó un patrón **Supervisor Jerárquico** (*Hierarchical Agent Supervisor*):
+
+* **Supervisor** (`supervisor`): analiza la consulta y delega dinámicamente el siguiente turno con
+  una salida estructurada (`Literal["investigador", "analista", "FINALIZAR"]`). Coordina: no busca
+  ni calcula.
+* **Especialistas** con herramientas acotadas, que siempre devuelven el control al supervisor:
+  * `investigador`: busca en la documentación (ChromaDB) y devuelve datos con su fuente.
+  * `analista`: hace los cálculos y comparaciones contra umbrales.
+* **Criterio de parada**: cuando el supervisor decide `FINALIZAR`, el nodo `validacion` revisa la
+  rúbrica de suficiencia en código. Si falta algo, devuelve el turno al supervisor (arista
+  condicional); si está completo, pasa al `sintetizador`, que redacta la respuesta final antes del
+  `END`. Topes en código impiden el "supervisor infinito".
+
+### Justificación
+
+El Módulo 6 recomienda la jerarquía cuando el flujo es semi-determinístico, se necesita un validador
+antes de responder y el control de costos y la trazabilidad importan. Las tres condiciones se dan acá:
+
+- **El orden de trabajo es casi siempre el mismo**: primero encontrar los datos, después calcular,
+  al final redactar. No es un problema exploratorio donde convenga que los agentes se organicen solos.
+- **Hay dependencia de datos**: el analista no puede trabajar sin lo que encuentra el investigador.
+  En una red de pares, el analista tendría que "darse cuenta" de cuándo hay datos nuevos (coreografía).
+  Acá el supervisor lo decide explícitamente.
+- **La respuesta tiene que ser verificable**: cifras con su fuente y cuentas correctas. Un punto
+  central de control (supervisor + validación) es el lugar natural para esa revisión.
+- **Auditoría y costo**: cada decisión de ruteo queda registrada con su razonamiento, y los topes
+  de delegaciones acotan cuántas llamadas al LLM puede hacer un turno.
+
+El riesgo de esta topología es que el supervisor sea un cuello de botella o un punto único de falla.
+Se mitiga así: el supervisor solo coordina (no busca ni calcula), recibe un resumen compacto en lugar
+del historial completo, y si falla hay un fail-safe en código (sección 9).
+
+## 2. Diagrama de flujo (Mermaid)
 
 ![Grafo del orquestador](docs/grafo.png)
 
@@ -73,43 +99,7 @@ graph TD;
 
 Todos los nodos agregan además una entrada a la bitácora `contribuciones`.
 
-## Por qué una topología jerárquica
-
-El Módulo 6 recomienda la jerarquía cuando el flujo es semi-determinístico, se necesita un validador
-antes de responder y el control de costos y la trazabilidad importan. Las tres condiciones se dan acá:
-
-- **El orden de trabajo es casi siempre el mismo**: primero encontrar los datos, después calcular,
-  al final redactar. No es un problema exploratorio donde convenga que los agentes se organicen solos.
-- **Hay dependencia de datos**: el analista no puede trabajar sin lo que encuentra el investigador.
-  En una red de pares, el analista tendría que "darse cuenta" de cuándo hay datos nuevos (coreografía).
-  Acá el supervisor lo decide explícitamente.
-- **La respuesta tiene que ser verificable**: cifras con su fuente y cuentas correctas. Un punto
-  central de control (supervisor + validación) es el lugar natural para esa revisión.
-- **Auditoría y costo**: cada decisión de ruteo queda registrada con su razonamiento, y los topes
-  de delegaciones acotan cuántas llamadas al LLM puede hacer un turno.
-
-El riesgo de esta topología es que el supervisor sea un cuello de botella o un punto único de falla.
-Se mitiga así: el supervisor solo coordina (no busca ni calcula), recibe un resumen compacto en lugar
-del historial completo, y si falla hay un fail-safe en código (ver más abajo).
-
-## Cómo cumple la consigna
-
-| Requisito | Implementación | Archivo |
-|---|---|---|
-| Topología jerárquica con Supervisor router | Nodo `supervisor`. Los especialistas siempre vuelven a él (`add_edge(especialista, "supervisor")`) | `graph.py`, `agents/supervisor.py` |
-| Agente de Búsqueda/Investigación con fuentes externas | `create_react_agent` con `buscar_documentacion` y `listar_documentos` sobre ChromaDB (la base de la pre-entrega 3) | `agents/research_agent.py`, `tools/custom_tools.py` |
-| Agente de Análisis/Cómputo | `create_react_agent` con `calcular`, `porcentaje` y `comparar_con_umbral`, más la verificación de cada cálculo en código | `agents/analyst_agent.py`, `tools/custom_tools.py` |
-| Herramientas acotadas por agente | El investigador no puede calcular y el analista no puede buscar (lo verifica un test) | `tools/custom_tools.py`, `tests/test_tools.py` |
-| Estado compartido estructurado | `OrquestadorState(MessagesState)` con `next_agent`, `task_completed`, una parcela por agente y la bitácora `contribuciones` | `state.py` |
-| Supervisor que decide si refinar o finalizar | Rúbrica de suficiencia en su prompt, más el nodo `validacion` que puede devolverle el turno | `agents/supervisor.py` |
-| `StateGraph` con aristas condicionales que retornan un `Literal` | `rutear_supervisor(...) -> DestinoSupervisor` (`Literal["investigador", "analista", "validacion"]`) y `rutear_validacion(...) -> DestinoValidacion` | `agents/supervisor.py`, `graph.py` |
-| Nodo de Validation antes del END | `validacion`: rúbrica en código (ver abajo) | `agents/supervisor.py` |
-| Fase de síntesis final | Nodo `sintetizador` | `agents/analyst_agent.py` |
-| Grafo principal | `build_graph()` | `graph.py` |
-| Prueba de interacción (Investigador → Analista → cierre) | Demo de 4 turnos y notebook | `main.py`, `demo.ipynb` |
-| README con diagrama Mermaid | Esta página y `docs/grafo.png` | `README.md`, `docs/` |
-
-## Estructura del repositorio
+## 3. Estructura del proyecto
 
 Sigue la estructura propuesta para la entrega:
 
@@ -145,7 +135,154 @@ El nodo de validación vive en `agents/supervisor.py` porque es la segunda mitad
 calidad del supervisor. La síntesis final vive en `agents/analyst_agent.py`, que la estructura
 propuesta define como "análisis / síntesis".
 
-## Estado compartido (`state.py`)
+## 4. Requisitos y configuración
+
+Requiere Python 3.12 o superior.
+
+### Linux / macOS
+
+```bash
+git clone https://github.com/pantonini2011/ai-engineering-6.git
+cd ai-engineering-6
+
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt    # versiones exactas probadas
+
+cp .env.example .env               # y completá ANTHROPIC_API_KEY u OPENAI_API_KEY
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/pantonini2011/ai-engineering-6.git
+cd ai-engineering-6
+
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+copy .env.example .env             # y completá ANTHROPIC_API_KEY u OPENAI_API_KEY
+```
+
+Si `Activate.ps1` falla con *"la ejecución de scripts está deshabilitada en este sistema"*, ejecutá
+una sola vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. En `cmd`, activá con
+`.venv\Scripts\activate.bat`.
+
+La primera ejecución descarga el modelo de embeddings (~470 MB, una sola vez) e indexa los documentos
+en `./vectorstore`. Las siguientes ejecuciones reutilizan la colección.
+
+### Configuración (`.env`)
+
+| Variable | Valor | Obligatoria |
+|---|---|---|
+| `LLM_PROVIDER` | `anthropic` (default) u `openai` | No |
+| `LLM_MODEL` | Modelo para todos los roles (default `claude-sonnet-5-5` / `gpt-4o-mini`) | No |
+| `LLM_MODEL_SUPERVISOR`, `LLM_MODEL_INVESTIGADOR`, `LLM_MODEL_ANALISTA`, `LLM_MODEL_SINTETIZADOR` | Un modelo distinto por rol (ej. supervisor más capaz y especialistas más baratos) | No |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | La del proveedor elegido | Sí (para la demo) |
+
+El `.env` está en `.gitignore` y nunca se sube. Los embeddings corren localmente, sin API key.
+
+## 5. Ejecución y pruebas
+
+Con el venv activado y desde la raíz del repo:
+
+```bash
+# Demo de 4 turnos: genera traces/traza_delegacion.log y traces/traza_delegacion.json
+python main.py
+
+# Chat interactivo con memoria por thread_id
+python main.py --chat --thread-id mi-sesion
+
+# Volver a indexar data/docs en Chroma (por ejemplo, después de cambiar un documento)
+python main.py --reindexar
+
+# Tests offline (sin API key) y tipado
+pytest
+mypy                 # revisa los archivos listados en pyproject.toml
+```
+
+El notebook [`demo.ipynb`](demo.ipynb) se abre con Jupyter o VS Code, usando el
+kernel del `.venv` y la raíz del repo como directorio de trabajo.
+
+### Evidencia de ejecución
+
+| Qué | Resultado | Evidencia |
+|---|---|---|
+| Demo con API real | 4 turnos con Anthropic `claude-sonnet-5-5` (14/10/2026). En los 4, el supervisor delegó primero en el investigador y después en el analista (salvo el turno 4, sin datos). Ningún especialista falló | [`traces/traza_delegacion.log`](traces/traza_delegacion.log), [`traces/traza_delegacion.json`](traces/traza_delegacion.json) |
+| Notebook de demostración | Ejecutado de punta a punta, sin errores, con las salidas guardadas: diagrama, delegación paso a paso, parcelas del estado, respuesta y seguimiento en el mismo thread | [`demo.ipynb`](demo.ipynb) |
+| Tests (`pytest`) | **39 passed**, sin API key (Python 3.12.10, Windows 10) | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
+| Tipado (`mypy --strict`) | `Success: no issues found in 12 source files` | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
+| Diagrama del grafo | Generado con `graph.get_graph().draw_mermaid_png()` | [`docs/grafo.png`](docs/grafo.png), [`docs/grafo.mmd`](docs/grafo.mmd) |
+
+Para reproducirlo: `pytest` (no usa API key) y `python main.py` (demo; usa la key del `.env`).
+
+### Demostración
+
+La corrida completa está en el notebook [`demo.ipynb`](demo.ipynb) (diagrama, delegación paso a
+paso, parcelas del estado y respuesta) y en las trazas de `traces/`.
+
+#### Traza de ejemplo
+
+La demo ejecuta 4 turnos (`DEMO` en `main.py`):
+
+| Thread | Pregunta | Qué demuestra |
+|---|---|---|
+| `sesion-pool` | 87 conexiones en PgBouncer hace 3 min: ¿salta la alerta?, ¿qué % y margen?, ¿qué dice el runbook? | Investigador (umbral, límite, runbook) → Analista (87%, +7 sobre el umbral, margen de 13) → validación → síntesis |
+| `sesion-pool` | "Si subimos temporalmente el límite, ¿a qué % quedarían esas mismas conexiones?" | Memoria: "esas mismas conexiones" se resuelve con el turno anterior (58% con límite 150; 33 conexiones más antes de la alerta) |
+| `sesion-canario` | Canario con 1,6% de 5xx durante 6 min: ¿rollback?, ¿alerta? | Dos documentos y dos umbrales: no revierte (umbral >2%) pero sí alerta (>1% por 5 min) |
+| `sesion-fuera` | Cotización del dólar y costo de servidores | El investigador no encuentra nada → el supervisor finaliza sin llamar al analista → "No lo sé" |
+
+Fragmento del primer turno ([`traces/traza_delegacion.log`](traces/traza_delegacion.log); las líneas
+`HTTP Request` de ese archivo marcan cada llamada al LLM):
+
+```
+[sesion-pool] Usuario: Hoy PgBouncer tiene 87 conexiones activas sostenidas hace 3 minutos. ¿Ya debería ...
+  [paso 1] inicio → recibió la pregunta
+  [paso 2] supervisor → delegó a investigador: Nadie intervino todavía: faltan los datos de la documentación ...
+  [paso 3] investigador → investigó (9 hallazgos): La documentación fija el límite del pool de PgBouncer en 100 ...
+           [fuentes: monitoreo_alertas.md, arquitectura_sistema.md, runbook_incidentes.md]
+  [paso 4] supervisor → delegó a analista: El investigador ya aportó con fuente el límite (100), el umbral de alerta (80% ...
+  [paso 5] analista → analizó (6 cálculos, 0 con error): El uso del pool es 87% (87 de 100 conexiones), 7 por encima ...
+  [paso 6] supervisor → envió a validación: decidió finalizar: La rúbrica se cumple ...
+  [paso 7] validacion → rechazó (1/2): Al análisis le faltan datos: Severidad exacta de la alerta de uso superior al 80% ...
+  [paso 8] supervisor → envió a validación: decidió finalizar: El investigador aportó los hallazgos con fuente ...
+  [paso 9] validacion → aprobó con limitaciones
+  [paso 10] sintetizador → redactó la respuesta final
+```
+
+Respuesta final (resumida):
+
+> **Sí, la alerta ya debería haber saltado.** Uso del pool: 87 / 100 × 100 = **87%** del límite de 100
+> conexiones [arquitectura_sistema.md]. **Margen:** 100 − 87 = **13 conexiones**. La alerta se dispara al
+> superar el 80% sostenido por más de 2 minutos [monitoreo_alertas.md]: las 87 superan las 80 por 7, y
+> 3 − 2 = 1 minuto por encima de la duración mínima. El runbook indica verificar el dashboard de PgBouncer,
+> buscar queries colgadas con `pg_stat_activity` y, si es solo volumen, escalar réplicas o subir
+> temporalmente el límite a 150 [runbook_incidentes.md].
+> *Limitaciones: no se puede confirmar que la alerta se haya disparado en el sistema real; la documentación
+> no aclara la severidad exacta de la alerta del 80% ...*
+
+El `.json` tiene, por turno, cada paso de la bitácora y lo que cada especialista dejó en su parcela:
+hallazgos con fuente, cálculos con su verificación, delegaciones y rechazos.
+
+## 6. Cómo cumple la consigna
+
+| Requisito | Implementación | Archivo |
+|---|---|---|
+| Topología jerárquica con Supervisor router | Nodo `supervisor`. Los especialistas siempre vuelven a él (`add_edge(especialista, "supervisor")`) | `graph.py`, `agents/supervisor.py` |
+| Agente de Búsqueda/Investigación con fuentes externas | `create_react_agent` con `buscar_documentacion` y `listar_documentos` sobre ChromaDB (la base de la pre-entrega 3) | `agents/research_agent.py`, `tools/custom_tools.py` |
+| Agente de Análisis/Cómputo | `create_react_agent` con `calcular`, `porcentaje` y `comparar_con_umbral`, más la verificación de cada cálculo en código | `agents/analyst_agent.py`, `tools/custom_tools.py` |
+| Herramientas acotadas por agente | El investigador no puede calcular y el analista no puede buscar (lo verifica un test) | `tools/custom_tools.py`, `tests/test_tools.py` |
+| Estado compartido estructurado | `OrquestadorState(MessagesState)` con `next_agent`, `task_completed`, una parcela por agente y la bitácora `contribuciones` | `state.py` |
+| Supervisor que decide si refinar o finalizar | Rúbrica de suficiencia en su prompt, más el nodo `validacion` que puede devolverle el turno | `agents/supervisor.py` |
+| `StateGraph` con aristas condicionales que retornan un `Literal` | `rutear_supervisor(...) -> DestinoSupervisor` (`Literal["investigador", "analista", "validacion"]`) y `rutear_validacion(...) -> DestinoValidacion` | `agents/supervisor.py`, `graph.py` |
+| Nodo de Validation antes del END | `validacion`: rúbrica en código (sección 9) | `agents/supervisor.py` |
+| Fase de síntesis final | Nodo `sintetizador` | `agents/analyst_agent.py` |
+| Grafo principal | `build_graph()` | `graph.py` |
+| Prueba de interacción (Investigador → Analista → cierre) | Demo de 4 turnos y notebook | `main.py`, `demo.ipynb` |
+| README con diagrama Mermaid | Esta página y `docs/grafo.png` | `README.md`, `docs/` |
+
+## 7. Estado compartido (`state.py`)
 
 `OrquestadorState` hereda de `MessagesState`. Sigue las reglas de la Unidad 3: cada agente escribe
 solo en su parcela, y todo lo que produce un LLM se valida con Pydantic antes de entrar al estado.
@@ -173,7 +310,7 @@ Decisiones de diseño:
 - Un test (`test_cada_agente_escribe_solo_su_parcela`) recorre los updates de cada nodo y falla si
   alguno escribe fuera de su parcela.
 
-## Los especialistas
+## 8. Los especialistas
 
 Los dos especialistas usan `create_react_agent` y razonan en su propio subgrafo ReAct. Sus mensajes
 internos (tool calls, resultados) **no** pasan al estado compartido: al estado solo llega el
@@ -188,7 +325,7 @@ resultado validado.
 
 Salida: `Investigacion` (`resumen`, `hallazgos[{dato, fuente}]`, `no_documentado`, `sin_informacion`).
 `no_documentado` lista lo que se pidió, se buscó y no está: le llega al analista para que no lo
-reclame como dato faltante (ver "Hallazgos durante el desarrollo"). Si el LLM cita una
+reclame como dato faltante (sección 13). Si el LLM cita una
 fuente que la búsqueda no devolvió, queda en `fuentes_no_verificadas`, ese hallazgo no llega al
 analista y la validación lo rechaza.
 
@@ -208,7 +345,7 @@ Las tools heredan las prácticas de la pre-entrega 5: `args_schema` Pydantic con
 docstrings que dicen cuándo usarlas y **cuándo no**, argumentos inválidos que vuelven como error
 (la tool no se ejecuta) y un timeout en la búsqueda.
 
-## Flujo de supervisión
+## 9. Flujo de supervisión
 
 ### El supervisor
 
@@ -258,7 +395,7 @@ Lo cubren los tests de `TestCondicionDeParada`: un supervisor que pide siempre a
 que alterna especialistas sin finalizar nunca y uno que siempre falla terminan con respuesta, y uno
 sin saldo corta sin seguir delegando.
 
-## Contaminación de contexto: quién ve qué
+## 10. Contaminación de contexto: quién ve qué
 
 | Agente | Recibe | No recibe |
 |---|---|---|
@@ -271,7 +408,7 @@ Por eso la `instruccion` del supervisor tiene que ser **autocontenida**: en un s
 "¿y si subimos el límite?", el supervisor le pasa al investigador y al analista las cifras del turno
 anterior. Lo verifican los tests de `TestAislamientoDeContexto`, que inspeccionan lo que recibe cada LLM.
 
-## Conflictos entre agentes
+## 11. Conflictos entre agentes
 
 | Conflicto | Cómo se maneja |
 |---|---|
@@ -284,7 +421,7 @@ anterior. Lo verifican los tests de `TestAislamientoDeContexto`, que inspecciona
 | Supervisor y validación no coinciden | La validación manda, pero con tope: si encuentra los mismos problemas que el supervisor ya evaluó, aprueba con limitaciones |
 | Falla un especialista (excepción, salida inválida) | Se captura en el nodo y queda en el estado como `error`. El supervisor decide si reintenta. Los errores de credenciales o de saldo sí cortan la ejecución |
 
-## Qué se reutiliza de las pre-entregas anteriores
+## 12. Qué se reutiliza de las pre-entregas anteriores
 
 | Pre-entrega | Qué se usa acá |
 |---|---|
@@ -294,7 +431,7 @@ anterior. Lo verifican los tests de `TestAislamientoDeContexto`, que inspecciona
 | 4 — RAG escalable | Metadata rica por fragmento (fuente y sección) y filtro por documento en la búsqueda |
 | 5 — Agente ReAct | `MessagesState`, tools con `args_schema` y "cuándo NO usarla", errores como observación, timeouts, `AsyncSqliteSaver` + `thread_id`, `recursion_limit`, trazas `.log`/`.json`, tests offline con LLM falso y `mypy --strict` |
 
-## Hallazgos durante el desarrollo
+## 13. Hallazgos durante el desarrollo
 
 La demo con la API real, el notebook y pruebas en el chat encontraron cinco problemas que los tests
 con LLM falso no mostraban. Están corregidos y cubiertos por tests:
@@ -328,120 +465,7 @@ con LLM falso no mostraban. Están corregidos y cubiertos por tests:
    respuesta no decía la causa. Ahora corta y muestra *"La cuenta no tiene saldo"*.
    Test: `test_sin_saldo_corta_en_lugar_de_reintentar`.
 
-## Cómo levantar el entorno
-
-Requiere Python 3.12 o superior.
-
-### Linux / macOS
-
-```bash
-git clone https://github.com/pantonini2011/ai-engineering-6.git
-cd ai-engineering-6
-
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt    # versiones exactas probadas
-
-cp .env.example .env               # y completá ANTHROPIC_API_KEY u OPENAI_API_KEY
-```
-
-### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/pantonini2011/ai-engineering-6.git
-cd ai-engineering-6
-
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-copy .env.example .env             # y completá ANTHROPIC_API_KEY u OPENAI_API_KEY
-```
-
-Si `Activate.ps1` falla con *"la ejecución de scripts está deshabilitada en este sistema"*, ejecutá
-una sola vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. En `cmd`, activá con
-`.venv\Scripts\activate.bat`.
-
-La primera ejecución descarga el modelo de embeddings (~470 MB, una sola vez) e indexa los documentos
-en `./vectorstore`. Las siguientes ejecuciones reutilizan la colección.
-
-### Configuración (`.env`)
-
-| Variable | Valor | Obligatoria |
-|---|---|---|
-| `LLM_PROVIDER` | `anthropic` (default) u `openai` | No |
-| `LLM_MODEL` | Modelo para todos los roles (default `claude-sonnet-5-5` / `gpt-4o-mini`) | No |
-| `LLM_MODEL_SUPERVISOR`, `LLM_MODEL_INVESTIGADOR`, `LLM_MODEL_ANALISTA`, `LLM_MODEL_SINTETIZADOR` | Un modelo distinto por rol (ej. supervisor más capaz y especialistas más baratos) | No |
-| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | La del proveedor elegido | Sí (para la demo) |
-
-El `.env` está en `.gitignore` y nunca se sube. Los embeddings corren localmente, sin API key.
-
-## Cómo ejecutarlo
-
-Con el venv activado y desde la raíz del repo:
-
-```bash
-# Demo de 4 turnos: genera traces/traza_delegacion.log y traces/traza_delegacion.json
-python main.py
-
-# Chat interactivo con memoria por thread_id
-python main.py --chat --thread-id mi-sesion
-
-# Volver a indexar data/docs en Chroma (por ejemplo, después de cambiar un documento)
-python main.py --reindexar
-
-# Tests offline (sin API key) y tipado
-pytest
-mypy                 # revisa los archivos listados en pyproject.toml
-```
-
-El notebook [`demo.ipynb`](demo.ipynb) se abre con Jupyter o VS Code, usando el
-kernel del `.venv` y la raíz del repo como directorio de trabajo.
-
-## Traza de ejemplo
-
-La demo ejecuta 4 turnos (`DEMO` en `main.py`):
-
-| Thread | Pregunta | Qué demuestra |
-|---|---|---|
-| `sesion-pool` | 87 conexiones en PgBouncer hace 3 min: ¿salta la alerta?, ¿qué % y margen?, ¿qué dice el runbook? | Investigador (umbral, límite, runbook) → Analista (87%, +7 sobre el umbral, margen de 13) → validación → síntesis |
-| `sesion-pool` | "Si subimos temporalmente el límite, ¿a qué % quedarían esas mismas conexiones?" | Memoria: "esas mismas conexiones" se resuelve con el turno anterior (58% con límite 150; 33 conexiones más antes de la alerta) |
-| `sesion-canario` | Canario con 1,6% de 5xx durante 6 min: ¿rollback?, ¿alerta? | Dos documentos y dos umbrales: no revierte (umbral >2%) pero sí alerta (>1% por 5 min) |
-| `sesion-fuera` | Cotización del dólar y costo de servidores | El investigador no encuentra nada → el supervisor finaliza sin llamar al analista → "No lo sé" |
-
-Fragmento del primer turno ([`traces/traza_delegacion.log`](traces/traza_delegacion.log); las líneas
-`HTTP Request` de ese archivo marcan cada llamada al LLM):
-
-```
-[sesion-pool] Usuario: Hoy PgBouncer tiene 87 conexiones activas sostenidas hace 3 minutos. ¿Ya debería ...
-  [paso 1] inicio → recibió la pregunta
-  [paso 2] supervisor → delegó a investigador: Nadie intervino todavía: faltan los datos de la documentación ...
-  [paso 3] investigador → investigó (9 hallazgos): La documentación fija el límite del pool de PgBouncer en 100 ...
-           [fuentes: monitoreo_alertas.md, arquitectura_sistema.md, runbook_incidentes.md]
-  [paso 4] supervisor → delegó a analista: El investigador ya aportó con fuente el límite (100), el umbral de alerta (80% ...
-  [paso 5] analista → analizó (6 cálculos, 0 con error): El uso del pool es 87% (87 de 100 conexiones), 7 por encima ...
-  [paso 6] supervisor → envió a validación: decidió finalizar: La rúbrica se cumple ...
-  [paso 7] validacion → rechazó (1/2): Al análisis le faltan datos: Severidad exacta de la alerta de uso superior al 80% ...
-  [paso 8] supervisor → envió a validación: decidió finalizar: El investigador aportó los hallazgos con fuente ...
-  [paso 9] validacion → aprobó con limitaciones
-  [paso 10] sintetizador → redactó la respuesta final
-```
-
-Respuesta final (resumida):
-
-> **Sí, la alerta ya debería haber saltado.** Uso del pool: 87 / 100 × 100 = **87%** del límite de 100
-> conexiones [arquitectura_sistema.md]. **Margen:** 100 − 87 = **13 conexiones**. La alerta se dispara al
-> superar el 80% sostenido por más de 2 minutos [monitoreo_alertas.md]: las 87 superan las 80 por 7, y
-> 3 − 2 = 1 minuto por encima de la duración mínima. El runbook indica verificar el dashboard de PgBouncer,
-> buscar queries colgadas con `pg_stat_activity` y, si es solo volumen, escalar réplicas o subir
-> temporalmente el límite a 150 [runbook_incidentes.md].
-> *Limitaciones: no se puede confirmar que la alerta se haya disparado en el sistema real; la documentación
-> no aclara la severidad exacta de la alerta del 80% ...*
-
-El `.json` tiene, por turno, cada paso de la bitácora y lo que cada especialista dejó en su parcela:
-hallazgos con fuente, cálculos con su verificación, delegaciones y rechazos.
-
-## Comportamiento observado y límites
+## 14. Comportamiento observado y límites
 
 - **Un rechazo de validación por turno es habitual.** En 3 de los 4 turnos, el analista reportó como
   "dato faltante" algo que la documentación no contiene (por ejemplo, la severidad exacta de la alerta del 80%).
