@@ -51,7 +51,8 @@ Reglas:
   (con punto decimal) y en `resultado` el número que devolvió.
 - Si falta un dato que debería estar en la documentación, listalo en `datos_faltantes`
   en lugar de suponerlo. Lo que solo el usuario puede confirmar (estado en vivo del sistema,
-  cantidad de instancias, etc.) va en `supuestos`.
+  cantidad de instancias, etc.) va en `supuestos`, igual que lo que figure en
+  "YA BUSCADO Y NO DOCUMENTADO": el investigador ya lo buscó y no está.
 - Si dos datos se contradicen, listalo en `inconsistencias`.
 - Las conclusiones deben ser concretas y verificables (ej. "87% supera el umbral de alerta del 80%")."""
 
@@ -89,7 +90,8 @@ def build_analyst_agent(llm: BaseChatModel) -> Any:
 
 def datos_para_analista(investigaciones: list[RegistroInvestigacion]) -> str:
     """Contexto mínimo para el analista: solo los hallazgos de este turno cuya fuente
-    devolvió efectivamente la búsqueda (los de fuente no verificada se descartan)."""
+    devolvió efectivamente la búsqueda (los de fuente no verificada se descartan), más lo
+    que el investigador ya buscó sin encontrar, para que no se pida buscarlo de nuevo."""
     lineas = [
         f"- {h.dato} [fuente: {h.fuente}]"
         for r in investigaciones
@@ -97,7 +99,14 @@ def datos_para_analista(investigaciones: list[RegistroInvestigacion]) -> str:
         for h in r.resultado.hallazgos
         if h.fuente in r.fuentes_consultadas
     ]
-    return "\n".join(lineas) or "(el investigador no aportó datos en este turno)"
+    texto = "\n".join(lineas) or "(el investigador no aportó datos en este turno)"
+    no_documentado = list(
+        dict.fromkeys(d for r in investigaciones if r.resultado for d in r.resultado.no_documentado)
+    )
+    if no_documentado:
+        texto += "\n\nYA BUSCADO Y NO DOCUMENTADO (va en `supuestos`, nunca en `datos_faltantes`):\n"
+        texto += "\n".join(f"- {d}" for d in no_documentado)
+    return texto
 
 
 def build_analyst_node(llm: BaseChatModel) -> Any:

@@ -1,50 +1,53 @@
 # pytest -v  (14/10/2026, Python 3.12.10, Windows 10)
 ============================= test session starts =============================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- D:\AI-ENGINEERING-6\.venv\Scripts\python.exe
-rootdir: D:\AI-ENGINEERING-6
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0 -- D:\ai-engineering-6\.venv\Scripts\python.exe
+rootdir: D:\ai-engineering-6
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.15.1, langsmith-0.14.8, platformdirs-4.13.0
-collecting ... collected 36 items
+collecting ... collected 39 items
 
 tests/test_orquestador.py::TestFlujoDeDelegacion::test_delega_investigador_luego_analista_y_finaliza PASSED [  2%]
 tests/test_orquestador.py::TestFlujoDeDelegacion::test_aristas_condicionales_usan_literal_con_nombres_de_nodos PASSED [  5%]
-tests/test_orquestador.py::TestFlujoDeDelegacion::test_el_supervisor_puede_ir_directo_al_analista PASSED [  8%]
-tests/test_orquestador.py::TestEstadoCompartido::test_cada_agente_escribe_solo_su_parcela PASSED [ 11%]
-tests/test_orquestador.py::TestEstadoCompartido::test_bitacora_registra_agente_paso_y_fuentes PASSED [ 13%]
-tests/test_orquestador.py::TestEstadoCompartido::test_fuente_inventada_queda_marcada_y_no_llega_al_analista PASSED [ 16%]
-tests/test_orquestador.py::TestAislamientoDeContexto::test_investigador_recibe_solo_la_instruccion PASSED [ 19%]
-tests/test_orquestador.py::TestAislamientoDeContexto::test_analista_recibe_instruccion_y_hallazgos_sin_salida_cruda_de_tools PASSED [ 22%]
-tests/test_orquestador.py::TestAislamientoDeContexto::test_supervisor_ve_un_resumen_no_los_mensajes_internos PASSED [ 25%]
-tests/test_orquestador.py::TestValidacionYRefinamiento::test_calculo_erroneo_se_rechaza_y_el_analista_lo_refina PASSED [ 27%]
+tests/test_orquestador.py::TestFlujoDeDelegacion::test_el_supervisor_puede_ir_directo_al_analista PASSED [  7%]
+tests/test_orquestador.py::TestEstadoCompartido::test_cada_agente_escribe_solo_su_parcela PASSED [ 10%]
+tests/test_orquestador.py::TestEstadoCompartido::test_bitacora_registra_agente_paso_y_fuentes PASSED [ 12%]
+tests/test_orquestador.py::TestEstadoCompartido::test_fuente_inventada_queda_marcada_y_no_llega_al_analista PASSED [ 15%]
+tests/test_orquestador.py::TestAislamientoDeContexto::test_investigador_recibe_solo_la_instruccion PASSED [ 17%]
+tests/test_orquestador.py::TestAislamientoDeContexto::test_analista_recibe_instruccion_y_hallazgos_sin_salida_cruda_de_tools PASSED [ 20%]
+tests/test_orquestador.py::TestAislamientoDeContexto::test_supervisor_ve_un_resumen_no_los_mensajes_internos PASSED [ 23%]
+tests/test_orquestador.py::TestAislamientoDeContexto::test_analista_recibe_lo_ya_buscado_y_no_documentado PASSED [ 25%]
+tests/test_orquestador.py::TestValidacionYRefinamiento::test_calculo_erroneo_se_rechaza_y_el_analista_lo_refina PASSED [ 28%]
 tests/test_orquestador.py::TestValidacionYRefinamiento::test_sin_informacion_finaliza_sin_analisis PASSED [ 30%]
 tests/test_orquestador.py::TestValidacionYRefinamiento::test_finalizar_sin_analisis_se_rechaza PASSED [ 33%]
-tests/test_orquestador.py::TestCondicionDeParada::test_tope_por_especialista PASSED [ 36%]
-tests/test_orquestador.py::TestCondicionDeParada::test_tope_total_de_delegaciones PASSED [ 38%]
-tests/test_orquestador.py::TestCondicionDeParada::test_fail_safe_si_el_supervisor_falla PASSED [ 41%]
-tests/test_orquestador.py::TestPersistencia::test_segundo_turno_recuerda_la_conversacion PASSED [ 44%]
-tests/test_orquestador.py::TestPersistencia::test_threads_distintos_no_comparten_estado PASSED [ 47%]
-tests/test_orquestador.py::TestDemo::test_demo_corre_los_turnos_sobre_una_base_nueva PASSED [ 50%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_resuelve_aritmetica PASSED [ 52%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[__import__('os').system('dir')] PASSED [ 55%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[open('x')] PASSED [ 58%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[(1).__class__] PASSED [ 61%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[x * 2] PASSED [ 63%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[9 ** 99] PASSED [ 66%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[1 / 0] PASSED [ 69%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[1,5 + 2] PASSED [ 72%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[round(1.55, 1.5)] PASSED [ 75%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[min()] PASSED [ 77%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_porcentaje_y_umbral PASSED [ 80%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_argumentos_invalidos_vuelven_como_error PASSED [ 83%]
-tests/test_tools.py::TestHerramientasDelAnalista::test_verificar_calculos_detecta_aritmetica_del_llm_incorrecta PASSED [ 86%]
-tests/test_tools.py::TestHerramientasDelInvestigador::test_busqueda_devuelve_fuente_y_seccion_de_la_metadata PASSED [ 88%]
-tests/test_tools.py::TestHerramientasDelInvestigador::test_listar_documentos PASSED [ 91%]
+tests/test_orquestador.py::TestValidacionYRefinamiento::test_observacion_atendida_no_se_vuelve_a_mostrar PASSED [ 35%]
+tests/test_orquestador.py::TestCondicionDeParada::test_tope_por_especialista PASSED [ 38%]
+tests/test_orquestador.py::TestCondicionDeParada::test_tope_total_de_delegaciones PASSED [ 41%]
+tests/test_orquestador.py::TestCondicionDeParada::test_fail_safe_si_el_supervisor_falla PASSED [ 43%]
+tests/test_orquestador.py::TestCondicionDeParada::test_sin_saldo_corta_en_lugar_de_reintentar PASSED [ 46%]
+tests/test_orquestador.py::TestPersistencia::test_segundo_turno_recuerda_la_conversacion PASSED [ 48%]
+tests/test_orquestador.py::TestPersistencia::test_threads_distintos_no_comparten_estado PASSED [ 51%]
+tests/test_orquestador.py::TestDemo::test_demo_corre_los_turnos_sobre_una_base_nueva PASSED [ 53%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_resuelve_aritmetica PASSED [ 56%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[__import__('os').system('dir')] PASSED [ 58%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[open('x')] PASSED [ 61%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[(1).__class__] PASSED [ 64%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[x * 2] PASSED [ 66%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[9 ** 99] PASSED [ 69%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[1 / 0] PASSED [ 71%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[1,5 + 2] PASSED [ 74%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[round(1.55, 1.5)] PASSED [ 76%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_calcular_rechaza_lo_que_no_es_aritmetica[min()] PASSED [ 79%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_porcentaje_y_umbral PASSED [ 82%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_argumentos_invalidos_vuelven_como_error PASSED [ 84%]
+tests/test_tools.py::TestHerramientasDelAnalista::test_verificar_calculos_detecta_aritmetica_del_llm_incorrecta PASSED [ 87%]
+tests/test_tools.py::TestHerramientasDelInvestigador::test_busqueda_devuelve_fuente_y_seccion_de_la_metadata PASSED [ 89%]
+tests/test_tools.py::TestHerramientasDelInvestigador::test_listar_documentos PASSED [ 92%]
 tests/test_tools.py::TestHerramientasDelInvestigador::test_consulta_vacia_no_ejecuta_la_busqueda PASSED [ 94%]
 tests/test_tools.py::TestHerramientasDelInvestigador::test_las_tools_de_cada_especialista_estan_acotadas PASSED [ 97%]
 tests/test_tools.py::TestFragmentacion::test_fragmentos_entran_en_la_ventana_del_modelo_y_llevan_su_seccion PASSED [100%]
 
-============================= 36 passed in 7.82s ==============================
+============================= 39 passed in 10.35s =============================
 
 # mypy  (archivos en [tool.mypy] files de pyproject.toml)
 Success: no issues found in 12 source files

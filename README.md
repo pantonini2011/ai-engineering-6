@@ -19,7 +19,7 @@ conexiones en PgBouncer, ¿ya salta la alerta y cuánto margen queda?" exige dos
 |---|---|---|
 | Demo con API real | 4 turnos con Anthropic `claude-sonnet-5-5` (14/10/2026). En los 4, el supervisor delegó primero en el investigador y después en el analista (salvo el turno 4, sin datos). Ningún especialista falló | [`traces/traza_delegacion.log`](traces/traza_delegacion.log), [`traces/traza_delegacion.json`](traces/traza_delegacion.json) |
 | Notebook de demostración | Ejecutado de punta a punta, sin errores, con las salidas guardadas: diagrama, delegación paso a paso, parcelas del estado, respuesta y seguimiento en el mismo thread | [`demo.ipynb`](demo.ipynb) |
-| Tests (`pytest`) | **36 passed**, sin API key (Python 3.12.10, Windows 10) | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
+| Tests (`pytest`) | **39 passed**, sin API key (Python 3.12.10, Windows 10) | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
 | Tipado (`mypy --strict`) | `Success: no issues found in 12 source files` | [`traces/resultado_tests.txt`](traces/resultado_tests.txt) |
 | Diagrama del grafo | Generado con `graph.get_graph().draw_mermaid_png()` | [`docs/grafo.png`](docs/grafo.png), [`docs/grafo.mmd`](docs/grafo.mmd) |
 
@@ -136,7 +136,7 @@ Además:
 
 ```
 data/docs/   # Los 4 documentos de la pre-entrega 3 (fuente del investigador)
-tests/       # 36 tests offline (LLM falso; grafo, tools, Chroma y SQLite reales)
+tests/       # 39 tests offline (LLM falso; grafo, tools, Chroma y SQLite reales)
 traces/      # Traza de la demo (.log y .json) y salida de pytest/mypy
 docs/        # Diagrama del grafo (PNG y Mermaid)
 ```
@@ -186,7 +186,9 @@ resultado validado.
 | `buscar_documentacion(consulta, documento?)` | Búsqueda semántica en Chroma (top 5). Devuelve `fuente`, `seccion`, `similitud` y `texto` de cada fragmento. La fuente sale de la **metadata**, no del LLM |
 | `listar_documentos()` | Documentos indexados y sus secciones, para filtrar la búsqueda por documento |
 
-Salida: `Investigacion` (`resumen`, `hallazgos[{dato, fuente}]`, `sin_informacion`). Si el LLM cita una
+Salida: `Investigacion` (`resumen`, `hallazgos[{dato, fuente}]`, `no_documentado`, `sin_informacion`).
+`no_documentado` lista lo que se pidió, se buscó y no está: le llega al analista para que no lo
+reclame como dato faltante (ver "Hallazgos durante el desarrollo"). Si el LLM cita una
 fuente que la búsqueda no devolvió, queda en `fuentes_no_verificadas`, ese hallazgo no llega al
 analista y la validación lo rechaza.
 
@@ -234,7 +236,9 @@ antes del END:
 - el análisis no reporta datos faltantes de la documentación.
 
 Si algo falla, devuelve el turno al supervisor con las observaciones. El supervisor decide si
-re-delega o si esos problemas no tienen solución.
+re-delega o si esos problemas no tienen solución. Las observaciones se le muestran solo mientras
+están pendientes: en cuanto un especialista interviene, dejan de aparecer (si el problema persiste,
+la próxima validación lo vuelve a marcar).
 
 ### Anti "supervisor infinito"
 
@@ -248,9 +252,11 @@ Además de la rúbrica, hay topes **en código** que el LLM no puede saltear (`a
 | Mismos problemas que el rechazo anterior | — | El supervisor ya los evaluó y finalizó igual: no se insiste |
 | Supervisor sin decisión válida (tras 2 intentos con `.with_retry`) | — | Fail-safe: pasa a validación en lugar de colgarse |
 | `recursion_limit` del grafo / de cada especialista | 40 / 12 | Red de seguridad de LangGraph |
+| Credenciales inválidas o cuenta sin saldo | — | Corta la ejecución con un mensaje claro: ninguna llamada posterior funcionaría |
 
 Lo cubren los tests de `TestCondicionDeParada`: un supervisor que pide siempre al investigador, uno
-que alterna especialistas sin finalizar nunca y uno que siempre falla. Los tres terminan con respuesta.
+que alterna especialistas sin finalizar nunca y uno que siempre falla terminan con respuesta, y uno
+sin saldo corta sin seguir delegando.
 
 ## Contaminación de contexto: quién ve qué
 
@@ -258,7 +264,7 @@ que alterna especialistas sin finalizar nunca y uno que siempre falla. Los tres 
 |---|---|---|
 | Supervisor | Resumen compacto: conversación previa (preguntas y respuestas finales), trabajo del turno, observaciones de la validación, presupuesto | Mensajes internos de los especialistas, resultados crudos de las tools |
 | Investigador | Solo la instrucción del supervisor | La conversación, la pregunta original, el trabajo del analista |
-| Analista | La instrucción y los hallazgos **verificados** del turno (`dato [fuente]`) | La conversación, el JSON crudo de la búsqueda, hallazgos con fuente no verificada |
+| Analista | La instrucción, los hallazgos **verificados** del turno (`dato [fuente]`) y lo ya buscado y no documentado | La conversación, el JSON crudo de la búsqueda, hallazgos con fuente no verificada |
 | Sintetizador | Pregunta, conversación previa y resultados validados | Mensajes internos |
 
 Por eso la `instruccion` del supervisor tiene que ser **autocontenida**: en un seguimiento como
@@ -276,7 +282,7 @@ anterior. Lo verifican los tests de `TestAislamientoDeContexto`, que inspecciona
 | Datos contradictorios en la documentación | El analista los lista en `inconsistencias`; el supervisor pide una aclaración y, si persisten, se informan en la respuesta |
 | Al analista le falta un dato | `datos_faltantes` (buscable: vuelve al investigador) se distingue de `supuestos` (solo el usuario puede confirmarlo: se informa y no bloquea) |
 | Supervisor y validación no coinciden | La validación manda, pero con tope: si encuentra los mismos problemas que el supervisor ya evaluó, aprueba con limitaciones |
-| Falla un especialista (excepción, salida inválida) | Se captura en el nodo y queda en el estado como `error`. El supervisor decide si reintenta. Los errores de credenciales sí cortan la ejecución |
+| Falla un especialista (excepción, salida inválida) | Se captura en el nodo y queda en el estado como `error`. El supervisor decide si reintenta. Los errores de credenciales o de saldo sí cortan la ejecución |
 
 ## Qué se reutiliza de las pre-entregas anteriores
 
@@ -290,8 +296,8 @@ anterior. Lo verifican los tests de `TestAislamientoDeContexto`, que inspecciona
 
 ## Hallazgos durante el desarrollo
 
-La demo con la API real y el notebook encontraron tres problemas que los tests con LLM falso no
-mostraban. Los tres están corregidos y cubiertos por tests:
+La demo con la API real, el notebook y pruebas en el chat encontraron cinco problemas que los tests
+con LLM falso no mostraban. Están corregidos y cubiertos por tests:
 
 1. **La búsqueda no encontraba la regla de rollback del canario.** El modelo de embeddings
    (`paraphrase-multilingual-MiniLM-L12-v2`) solo lee los primeros **128 tokens** de cada texto, y la
@@ -310,6 +316,17 @@ mostraban. Los tres están corregidos y cubiertos por tests:
    y `round()` exige un entero como segundo argumento. Además, ese `TypeError` no se capturaba. El
    sistema se recuperó solo (el supervisor re-delegó hasta que el analista lo resolvió), pero ahora los
    enteros se conservan y cualquier error de operación vuelve como observación.
+4. **El supervisor actuaba sobre observaciones de la validación ya resueltas.** `feedback_validacion`
+   seguía visible después de que un especialista lo atendiera, y en un turno real el supervisor volvió a
+   investigar y analizar por un rechazo que ya estaba resuelto (unas 10 llamadas de más). Ahora la
+   observación solo se muestra mientras está pendiente. Test: `test_observacion_atendida_no_se_vuelve_a_mostrar`.
+   En la misma línea, el analista reclamaba como `datos_faltantes` datos que el investigador ya había
+   buscado sin encontrar, lo que forzaba un rechazo más. Ahora el investigador los informa en
+   `no_documentado` y el analista los recibe como supuestos. Test: `test_analista_recibe_lo_ya_buscado_y_no_documentado`.
+5. **Sin saldo en la API, el sistema seguía intentando.** El error de saldo agotado se trataba como un
+   fallo pasajero: el fail-safe y la validación hacían unas 5 llamadas rechazadas por pregunta y la
+   respuesta no decía la causa. Ahora corta y muestra *"La cuenta no tiene saldo"*.
+   Test: `test_sin_saldo_corta_en_lugar_de_reintentar`.
 
 ## Cómo levantar el entorno
 

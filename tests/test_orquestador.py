@@ -204,6 +204,19 @@ class TestAislamientoDeContexto:
         ultima = _llm(m.supervisor).recibidos[-1][1].text
         assert "## Trabajo del turno" in ultima and "Límite de 100 conexiones" in ultima
 
+    def test_analista_recibe_lo_ya_buscado_y_no_documentado(self, tmp_path: Path, vectorstore: Chroma) -> None:
+        msgs, (inv,) = investigacion_ok()
+        inv = inv.model_copy(update={"no_documentado": ["severidad de la alerta"]})
+        m = modelos(
+            supervisor=[decidir("investigador", INSTR_INV), decidir("analista", INSTR_AN), decidir("FINALIZAR")],
+            investigador=(msgs, [inv]),
+            analista=analisis(),
+        )
+        correr(tmp_path, m, vectorstore, [PREGUNTA])
+        entrada = _llm(m.analista).recibidos[0][1].text
+        assert "YA BUSCADO Y NO DOCUMENTADO" in entrada and "- severidad de la alerta" in entrada
+        assert "no documentado: severidad de la alerta" in _llm(m.supervisor).recibidos[1][1].text
+
 
 class TestValidacionYRefinamiento:
     """La validación revisa la rúbrica antes del END y puede pedir que un especialista refine."""
@@ -251,6 +264,21 @@ class TestValidacionYRefinamiento:
         assert "Falta el análisis" in rechazo.detalle
         assert agentes(estado)[-2:] == ["validacion", "sintetizador"]
 
+    def test_observacion_atendida_no_se_vuelve_a_mostrar(self, tmp_path: Path, vectorstore: Chroma) -> None:
+        # Bug visto con la API real: tras atender un rechazo, el supervisor seguía viendo la
+        # observación vieja y volvía a delegar por un problema ya resuelto.
+        m = modelos(
+            supervisor=[decidir("FINALIZAR"), decidir("investigador", INSTR_INV),
+                        decidir("analista", INSTR_AN), decidir("FINALIZAR")],
+            investigador=investigacion_ok(),
+            analista=analisis(),
+        )
+        estado, _ = correr(tmp_path, m, vectorstore, [PREGUNTA])
+        vistas = [llamada[1].text for llamada in _llm(m.supervisor).recibidos]
+        assert "No hay una investigación exitosa" in vistas[1]  # justo después del rechazo
+        assert "No hay una investigación exitosa" not in vistas[2]  # ya investigó: no se repite
+        assert agentes(estado)[-2:] == ["validacion", "sintetizador"]
+
 
 class TestCondicionDeParada:
     """Anti "supervisor infinito": topes en código que el LLM no puede saltear."""
@@ -291,6 +319,14 @@ class TestCondicionDeParada:
         assert agentes(estado)[-1] == "sintetizador"
         assert estado["respuesta_final"]
         assert any("fail-safe" in c.detalle for c in estado["contribuciones"] if c.agente == "supervisor")
+
+    def test_sin_saldo_corta_en_lugar_de_reintentar(self, tmp_path: Path, vectorstore: Chroma) -> None:
+        sin_saldo = RuntimeError("Error code: 400 - Your credit balance is too low to access the Anthropic API.")
+        m = modelos(supervisor=[sin_saldo] * 20)
+        with pytest.raises(RuntimeError, match="credit balance"):
+            correr(tmp_path, m, vectorstore, [PREGUNTA])
+        # El intento + el reintento de .with_retry, y corta: sin fail-safe ni más delegaciones.
+        assert len(_llm(m.supervisor).recibidos) == 2
 
 
 class TestPersistencia:

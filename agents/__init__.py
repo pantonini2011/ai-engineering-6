@@ -93,6 +93,16 @@ async def ejecutar_especialista(
     return schema.model_validate(crudo), mensajes
 
 
+# Fragmentos del mensaje de error cuando la cuenta del proveedor no tiene saldo
+# (Anthropic: 400 "credit balance is too low"; OpenAI: 429 "insufficient_quota").
+SIN_SALDO = ("credit balance is too low", "insufficient_quota")
+
+
+def es_sin_saldo(error: BaseException) -> bool:
+    return any(s in str(error) for s in SIN_SALDO)
+
+
 def es_error_fatal(error: BaseException) -> bool:
-    """Errores de credenciales: no tiene sentido que el supervisor "reintente" con otro agente."""
-    return type(error).__name__ in {"AuthenticationError", "PermissionDeniedError"}
+    """Credenciales inválidas o cuenta sin saldo: ninguna llamada posterior va a funcionar,
+    así que no tiene sentido que el supervisor "reintente" con otro agente."""
+    return type(error).__name__ in {"AuthenticationError", "PermissionDeniedError"} or es_sin_saldo(error)

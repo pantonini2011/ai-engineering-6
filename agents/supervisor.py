@@ -103,6 +103,7 @@ def _resumen_investigacion(r: RegistroInvestigacion) -> str:
         return f"[paso {r.paso}] investigador: SIN INFORMACIÓN en la documentación. {r.resultado.resumen}"
     lineas = [f"[paso {r.paso}] investigador: {r.resultado.resumen}"]
     lineas += [f"   - {h.dato} [{h.fuente}]" for h in r.resultado.hallazgos]
+    lineas += [f"   - no documentado: {d}" for d in r.resultado.no_documentado]
     if r.fuentes_no_verificadas:
         lineas.append(f"   ! cita fuentes que la búsqueda no devolvió: {r.fuentes_no_verificadas}")
     return "\n".join(lineas)
@@ -132,12 +133,18 @@ def vista_del_supervisor(state: OrquestadorState) -> str:
     )
     delegaciones = state.get("delegaciones", {})
     restantes = MAX_DELEGACIONES - sum(delegaciones.values())
+    # La observación de la validación está pendiente solo si nadie actuó desde el rechazo.
+    # Si un especialista ya intervino, mostrarla haría re-delegar por un problema ya
+    # atendido (si persiste, la próxima validación lo vuelve a marcar).
+    contribuciones = del_turno(state.get("contribuciones", []), turno)
+    pendiente = bool(contribuciones) and contribuciones[-1].agente == "validacion"
+    observaciones = (state.get("feedback_validacion") if pendiente else "") or "(ninguna)"
     return "\n\n".join(
         [
             f"## Conversación previa\n{historial_conversacion(state['messages'])}",
             f"## Pregunta actual\n{state['pregunta']}",
             "## Trabajo del turno\n" + ("\n".join(t for _, t in trabajo) or "(todavía nadie intervino)"),
-            f"## Observaciones de la validación\n{state.get('feedback_validacion') or '(ninguna)'}",
+            f"## Observaciones de la validación\n{observaciones}",
             f"## Presupuesto\nDelegaciones hechas: {delegaciones}. Restantes en el turno: {restantes}.",
         ]
     )

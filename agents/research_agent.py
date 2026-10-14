@@ -32,6 +32,7 @@ Reglas:
 - Reportá SOLO datos que aparezcan en los fragmentos recuperados, cada uno con su `fuente`
   exactamente como la devolvió la herramienta. Copiá las cifras tal cual (umbrales, límites, tiempos).
 - No hagas cálculos, comparaciones ni recomendaciones propias: eso lo hace el analista.
+- Si la instrucción pide un dato que buscaste y no figura, listalo en no_documentado.
 - Si ningún fragmento responde la instrucción, devolvé sin_informacion=true y hallazgos vacíos.
   Nunca completes con conocimiento general."""
 

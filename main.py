@@ -23,6 +23,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 
+from agents import es_sin_saldo
 from agents.supervisor import MAX_DELEGACIONES, MAX_POR_ESPECIALISTA, MAX_RECHAZOS_VALIDACION
 from graph import (
     RECURSION_LIMIT,
@@ -205,6 +206,8 @@ def run() -> None:
     except Exception as e:
         # Errores del proveedor (API key inválida, sin crédito, sin red...): mensaje corto.
         if type(e).__module__.split(".")[0] in {"anthropic", "openai"}:
+            if es_sin_saldo(e):
+                sys.exit(f"✖ La cuenta de {proveedor_llm()} no tiene saldo: cargá crédito en Plans & Billing y reintentá.")
             sys.exit(f"✖ Error del proveedor de LLM ({proveedor_llm()}): {e}\n  Revisá la API key en el .env.")
         raise
 

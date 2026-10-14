@@ -80,6 +80,13 @@ class Investigacion(_Contrato):
         default=False,
         description="true si la documentación NO contiene información para la instrucción.",
     )
+    no_documentado: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Datos que pedía la instrucción, que buscaste y que NO figuran en la documentación "
+            "(ej. 'severidad de la alerta de PgBouncer'). Vacía si encontraste todo."
+        ),
+    )
 
 
 class Calculo(_Contrato):
